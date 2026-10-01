@@ -1,0 +1,13 @@
+/build
+/app/build
+/.gradle
+/.gradle_home/
+/SepUPDATE/
+*.zip
+/local.properties
+.DS_Store
+*.iml
+.idea/
+Antigravity IDE.exe
+SepUPDATE
+POS.zip

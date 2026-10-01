@@ -1,0 +1,21 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:9.3.1'
+        classpath 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.10'
+        classpath 'com.google.dagger:hilt-android-gradle-plugin:2.60.1'
+        classpath 'com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:2.3.11'
+    }
+}
+plugins {
+    alias(libs.plugins.kotlin.compose) apply false
+}
+
+// Removed allprojects and subprojects to favor settings.gradle
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
