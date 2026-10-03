@@ -227,7 +227,16 @@ class CartViewModel @Inject constructor(
                 }
                 orderDao.insertOrderItems(orderItems)
                 
-                // Print Receipt using updated logic (Unified Bluetooth Path)
+                // Print Receipt using updated logic
+                val isTokenEnabled = settingsRepository.enableTokenNumber.first()
+                val tokenNum = if (isTokenEnabled) {
+                    val num = settingsRepository.getNextTokenNumber()
+                    num.toString().padStart(3, '0')
+                } else null
+
+                val isTwoSlips = settingsRepository.printTwoSlips.first()
+                val printPasses = if (isTwoSlips) 2 else 1
+
                 val paperWidth = settingsRepository.paperWidth.first()
                 val footerContact = fyi.copiercode.easypos.util.ReceiptBuilder.FooterContact(
                     tel = settingsRepository.footerTel.first(),
@@ -236,22 +245,75 @@ class CartViewModel @Inject constructor(
                     loc2 = settingsRepository.footerLoc2.first()
                 )
                 
-                // Print Receipt using new Fancy Canvas-based path
                 val itemsToPrint = _cartItems.value.map { fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(it.product.name, it.quantity, it.totalPrice) }
+
+                val logoBitmap = if (!logoPath.isNullOrEmpty()) {
+                    try {
+                        if (logoPath.startsWith("content://") || logoPath.startsWith("file://") || logoPath.startsWith("android.resource://")) {
+                            val uri = android.net.Uri.parse(logoPath)
+                            context.contentResolver.openInputStream(uri)?.use {
+                                android.graphics.BitmapFactory.decodeStream(it)
+                            }
+                        } else {
+                            val file = java.io.File(logoPath)
+                            if (file.exists()) {
+                                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                            } else null
+                        }
+                    } catch (e: Exception) { null }
+                } else null
+
+                val paperWidthPx = if (paperWidth == 48) 576 else 384
+                val isCash = _paymentMethod.value == "CASH"
+                val printerType = settingsRepository.printerType.first()
                 
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printFancyOrder(
-                        context = context,
-                        logoUri = logoPath,
-                        shopName = shopName,
-                        billNo = orderIdStr,
-                        items = itemsToPrint,
-                        total = totalAmount.value,
-                        paymentMethod = _paymentMethod.value,
-                        amountReceived = _amountGiven.value.toDoubleOrNull() ?: 0.0,
-                        change = balanceAmount.value,
-                        footerContact = footerContact
-                    )
+                    repeat(printPasses) { pass ->
+                        val slipTitle = if (isTwoSlips) {
+                            if (pass == 0) "CASHIER COPY" else "CUSTOMER RECEIPT"
+                        } else null
+
+                        val passBitmap = fyi.copiercode.easypos.util.BitmapHelper.drawFancyReceipt(
+                            lineWidth = paperWidthPx,
+                            logo = logoBitmap,
+                            shopName = shopName,
+                            billNo = orderIdStr,
+                            tokenNumber = tokenNum,
+                            slipTitle = slipTitle,
+                            items = itemsToPrint,
+                            total = totalAmount.value,
+                            paymentMethod = _paymentMethod.value,
+                            amountReceived = _amountGiven.value.toDoubleOrNull() ?: 0.0,
+                            change = balanceAmount.value,
+                            footerContact = footerContact
+                        )
+
+                        when (printerType) {
+                            "USB" -> {
+                                fyi.copiercode.easypos.printing.UsbPrinterHelper(context).printBitmapUsb(passBitmap, openCashDrawer = isCash && pass == 0)
+                            }
+                            "NETWORK" -> {
+                                val ip = settingsRepository.networkPrinterIp.first()
+                                fyi.copiercode.easypos.printing.NetworkPrinterHelper().printBitmapNetwork(ip, 9100, passBitmap, openCashDrawer = isCash && pass == 0)
+                            }
+                            else -> {
+                                fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printFancyOrder(
+                                    context = context,
+                                    logoUri = logoPath,
+                                    shopName = shopName,
+                                    billNo = orderIdStr,
+                                    tokenNumber = tokenNum,
+                                    slipTitle = slipTitle,
+                                    items = itemsToPrint,
+                                    total = totalAmount.value,
+                                    paymentMethod = _paymentMethod.value,
+                                    amountReceived = _amountGiven.value.toDoubleOrNull() ?: 0.0,
+                                    change = balanceAmount.value,
+                                    footerContact = footerContact
+                                )
+                            }
+                        }
+                    }
                 }
                 
                 clearCart()

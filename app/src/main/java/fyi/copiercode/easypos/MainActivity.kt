@@ -266,9 +266,8 @@ class MainActivity : ComponentActivity() {
                         val c = char.toChar()
                         if (!Character.isWhitespace(c) || c == ' ') {
                             barcodeBuffer.append(c)
-                            // We return true here to "steal" the character from focused text fields
-                            // IF it's coming from a high-speed device (likely a scanner)
-                            if (currentTime - lastKeyTime < 50) return true
+                            // Only steal key events on the POS screen; do NOT steal when editing in Admin
+                            if (currentRoute == "pos" && currentTime - lastKeyTime < 50) return true
                         }
                     }
                 }

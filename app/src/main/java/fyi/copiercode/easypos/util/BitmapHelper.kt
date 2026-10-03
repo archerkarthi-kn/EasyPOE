@@ -97,6 +97,8 @@ object BitmapHelper {
         logo: Bitmap?,
         shopName: String,
         billNo: String,
+        tokenNumber: String? = null,
+        slipTitle: String? = null,
         items: List<ReceiptBuilder.ReceiptItem>,
         total: Double,
         paymentMethod: String,
@@ -123,6 +125,20 @@ object BitmapHelper {
         var y = 15f // Minimal top padding
         val centerX = lineWidth / 2f
         val margin = 50f 
+
+        // --- TOKEN NUMBER (IF ENABLED) ---
+        tokenNumber?.let { token ->
+            paint.textSize = 42f
+            paint.isFakeBoldText = true
+            val tokenText = "TOKEN #$token"
+            val tokenWidth = paint.measureText(tokenText)
+            canvas.drawText(tokenText, centerX - (tokenWidth / 2f), y + 30f, paint)
+            y += 45f
+            
+            paint.strokeWidth = 2f
+            canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+            y += 15f
+        }
 
         // --- TOP INFO: Bill No (Left) & Thank You (Right) ---
         paint.textSize = 21f // Slightly smaller
@@ -177,6 +193,15 @@ object BitmapHelper {
         canvas.drawLine(centerX - 100f, y - 10f, centerX + 100f, y - 10f, paint)
         y += 20f 
 
+        // Optional Slip Title Header (e.g. *** CUSTOMER RECEIPT *** or *** CASHIER COPY ***)
+        slipTitle?.let { title ->
+            paint.textSize = 24f
+            paint.isFakeBoldText = true
+            val titleText = "*** $title ***"
+            canvas.drawText(titleText, centerX - (paint.measureText(titleText) / 2f), y, paint)
+            y += 32f
+        }
+
         // --- METADATA GRID ---
         paint.textSize = 20f // Standard compact metadata size
         val col2X = centerX + 15f
@@ -221,29 +246,49 @@ object BitmapHelper {
         // --- ITEMS ---
         paint.isFakeBoldText = false
         paint.textSize = 20f
-        items.forEachIndexed { index, item ->
-            val rate = item.price / item.quantity
-            canvas.drawText((index + 1).toString(), snoX + 10f, y, paint)
-            
-            val maxNameWidth = qtyX - itemX - 10f
-            var name = item.name
-            if (paint.measureText(name) > maxNameWidth) {
-                name = name.take(12) + ".."
+        var itemIndex = 1
+        items.forEach { item ->
+            if (item.quantity == 0) {
+                // Category Header Row
+                y += 4f
+                paint.isFakeBoldText = true
+                paint.textSize = 21f
+                canvas.drawText(item.name, snoX, y, paint)
+                paint.isFakeBoldText = false
+                paint.textSize = 20f
+                y += 10f
+                paint.strokeWidth = 2f
+                canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+                y += 28f
+            } else {
+                val rate = item.price / item.quantity
+                canvas.drawText(itemIndex.toString(), snoX + 10f, y, paint)
+                itemIndex++
+                
+                val maxNameWidth = qtyX - itemX - 10f
+                var name = item.name
+                if (paint.measureText(name) > maxNameWidth) {
+                    var truncated = name
+                    while (paint.measureText("$truncated..") > maxNameWidth && truncated.length > 2) {
+                        truncated = truncated.substring(0, truncated.length - 1)
+                    }
+                    name = "$truncated.."
+                }
+                canvas.drawText(name, itemX, y, paint)
+                canvas.drawText(item.quantity.toString(), qtyX + 5f, y, paint)
+                
+                paint.textAlign = Paint.Align.RIGHT
+                canvas.drawText(String.format(Locale.US, "%.2f", rate), rateX - 10f, y, paint)
+                canvas.drawText(String.format(Locale.US, "%.2f", item.price), amountX, y, paint)
+                paint.textAlign = Paint.Align.LEFT
+                
+                y += 10f
+                paint.strokeWidth = 1f
+                paint.pathEffect = DashPathEffect(floatArrayOf(5f, 5f), 0f)
+                canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+                paint.pathEffect = null
+                y += 30f // Tightened item spacing
             }
-            canvas.drawText(name, itemX, y, paint)
-            canvas.drawText(item.quantity.toString(), qtyX + 5f, y, paint)
-            
-            paint.textAlign = Paint.Align.RIGHT
-            canvas.drawText(String.format(Locale.US, "%.2f", rate), rateX - 10f, y, paint)
-            canvas.drawText(String.format(Locale.US, "%.2f", item.price), amountX, y, paint)
-            paint.textAlign = Paint.Align.LEFT
-            
-            y += 10f
-            paint.strokeWidth = 1f
-            paint.pathEffect = DashPathEffect(floatArrayOf(5f, 5f), 0f)
-            canvas.drawLine(margin, y, lineWidth - margin, y, paint)
-            paint.pathEffect = null
-            y += 30f // Tightened item spacing
         }
 
         // --- SUMMARY ---

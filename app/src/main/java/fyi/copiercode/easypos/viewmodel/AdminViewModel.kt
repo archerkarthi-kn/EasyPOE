@@ -55,6 +55,125 @@ class AdminViewModel @Inject constructor(
     val bridgePin = settingsRepository.bridgePin.stateIn(viewModelScope, SharingStarted.Lazily, "1234")
     val bridgeToken = settingsRepository.bridgeToken.stateIn(viewModelScope, SharingStarted.Lazily, "")
     val pairedDevices = settingsRepository.pairedDevices.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val printerType = settingsRepository.printerType.stateIn(viewModelScope, SharingStarted.Lazily, "BLUETOOTH")
+    val networkPrinterIp = settingsRepository.networkPrinterIp.stateIn(viewModelScope, SharingStarted.Lazily, "192.168.1.100")
+    val manualBillingPassword = settingsRepository.manualBillingPassword.stateIn(viewModelScope, SharingStarted.Lazily, "11111")
+    val printTwoSlips = settingsRepository.printTwoSlips.stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val enableTokenNumber = settingsRepository.enableTokenNumber.stateIn(viewModelScope, SharingStarted.Lazily, false)
+    val tokenCounter = settingsRepository.tokenCounter.stateIn(viewModelScope, SharingStarted.Lazily, 1)
+
+    fun setPrinterType(type: String) {
+        viewModelScope.launch { settingsRepository.setPrinterType(type) }
+    }
+
+    fun setNetworkPrinterIp(ip: String) {
+        viewModelScope.launch { settingsRepository.setNetworkPrinterIp(ip) }
+    }
+
+    fun setManualBillingPassword(pwd: String) {
+        viewModelScope.launch { settingsRepository.setManualBillingPassword(pwd) }
+    }
+
+    fun setPrintTwoSlips(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setPrintTwoSlips(enabled) }
+    }
+
+    fun setEnableTokenNumber(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setEnableTokenNumber(enabled) }
+    }
+
+    fun resetTokenCounter() {
+        viewModelScope.launch { settingsRepository.resetTokenCounter() }
+    }
+
+    fun createManualOrder(
+        context: Context,
+        billNo: String,
+        items: List<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>,
+        paymentMethod: String,
+        amountGiven: Double,
+        change: Double,
+        onComplete: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val totalAmount = items.sumOf { it.price }
+                
+                // Manual bills are printed ONLY and excluded from database/audit logs as requested
+                val paperWidth = settingsRepository.paperWidth.first()
+                val footerContact = fyi.copiercode.easypos.util.ReceiptBuilder.FooterContact(
+                    tel = settingsRepository.footerTel.first(),
+                    email = settingsRepository.footerEmail.first(),
+                    loc1 = settingsRepository.footerLoc1.first(),
+                    loc2 = settingsRepository.footerLoc2.first()
+                )
+                val shopName = orderDao.getSetting("shop_name")?.value ?: "Easy POS"
+                val logoPath = orderDao.getSetting("receipt_logo_uri")?.value
+
+                val logoBitmap = if (!logoPath.isNullOrEmpty()) {
+                    try {
+                        if (logoPath.startsWith("content://") || logoPath.startsWith("file://") || logoPath.startsWith("android.resource://")) {
+                            val uri = Uri.parse(logoPath)
+                            context.contentResolver.openInputStream(uri)?.use {
+                                android.graphics.BitmapFactory.decodeStream(it)
+                            }
+                        } else {
+                            val file = File(logoPath)
+                            if (file.exists()) {
+                                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                            } else null
+                        }
+                    } catch (e: Exception) { null }
+                } else null
+
+                val paperWidthPx = if (paperWidth == 48) 576 else 384
+                val receiptBitmap = fyi.copiercode.easypos.util.BitmapHelper.drawFancyReceipt(
+                    lineWidth = paperWidthPx,
+                    logo = logoBitmap,
+                    shopName = shopName,
+                    billNo = billNo,
+                    items = items,
+                    total = totalAmount,
+                    paymentMethod = paymentMethod,
+                    amountReceived = amountGiven,
+                    change = change,
+                    footerContact = footerContact
+                )
+
+                val isCash = paymentMethod == "CASH"
+                val pType = settingsRepository.printerType.first()
+                withContext(Dispatchers.IO) {
+                    when (pType) {
+                        "USB" -> {
+                            fyi.copiercode.easypos.printing.UsbPrinterHelper(context).printBitmapUsb(receiptBitmap, openCashDrawer = isCash)
+                        }
+                        "NETWORK" -> {
+                            val ip = settingsRepository.networkPrinterIp.first()
+                            fyi.copiercode.easypos.printing.NetworkPrinterHelper().printBitmapNetwork(ip, 9100, receiptBitmap, openCashDrawer = isCash)
+                        }
+                        else -> {
+                            fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printFancyOrder(
+                                context = context,
+                                logoUri = logoPath,
+                                shopName = shopName,
+                                billNo = billNo,
+                                items = items,
+                                total = totalAmount,
+                                paymentMethod = paymentMethod,
+                                amountReceived = amountGiven,
+                                change = change,
+                                footerContact = footerContact
+                            )
+                        }
+                    }
+                }
+                onComplete(true, null)
+            } catch (e: Exception) {
+                Log.e("AdminViewModel", "Manual order failed", e)
+                onComplete(false, e.message)
+            }
+        }
+    }
 
     fun removePairedDevice(token: String) {
         viewModelScope.launch {
@@ -353,16 +472,36 @@ class AdminViewModel @Inject constructor(
                         addToZip(file, "database/${file.name}", zos)
                     }
                 }
-                filesDir.listFiles()?.forEach { file ->
-                    if (file.isFile) {
-                        addToZip(file, "files/${file.name}", zos)
-                    }
-                }
+                // Recursively add all files and subdirectories (e.g. datastore preferences)
+                addFolderToZip(filesDir, "files", zos)
             }
             zipFile.absolutePath
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    private fun addFolderToZip(folder: File, baseZipPath: String, zos: ZipOutputStream) {
+        folder.listFiles()?.forEach { file ->
+            val zipPath = "$baseZipPath/${file.name}"
+            if (file.isDirectory) {
+                addFolderToZip(file, zipPath, zos)
+            } else if (file.isFile) {
+                addToZip(file, zipPath, zos)
+            }
+        }
+    }
+
+    private fun copyDirectoryRecursively(source: File, target: File) {
+        if (source.isDirectory) {
+            target.mkdirs()
+            source.listFiles()?.forEach { child ->
+                copyDirectoryRecursively(child, File(target, child.name))
+            }
+        } else if (source.isFile) {
+            target.parentFile?.mkdirs()
+            source.copyTo(target, overwrite = true)
         }
     }
 
@@ -399,7 +538,7 @@ class AdminViewModel @Inject constructor(
                 }
             }
 
-            // Validate Metadata (Optional but recommended)
+            // Validate Metadata
             val metadataFile = File(tempDir, "backup_metadata.json")
             if (metadataFile.exists()) {
                 val metadata = Json.decodeFromString<BackupMetadata>(metadataFile.readText())
@@ -411,7 +550,7 @@ class AdminViewModel @Inject constructor(
                 fyi.copiercode.easypos.data.database.AppDatabase.closeDatabase()
             }
 
-            // Step 3: Overwrite
+            // Step 3: Overwrite Database and Files
             val dbTempDir = File(tempDir, "database")
             if (dbTempDir.exists()) {
                 dbTempDir.listFiles()?.forEach { file ->
@@ -421,9 +560,7 @@ class AdminViewModel @Inject constructor(
             
             val filesTempDir = File(tempDir, "files")
             if (filesTempDir.exists()) {
-                filesTempDir.listFiles()?.forEach { file ->
-                    file.copyTo(File(filesDir, file.name), overwrite = true)
-                }
+                copyDirectoryRecursively(filesTempDir, filesDir)
             }
 
             tempDir.deleteRecursively()

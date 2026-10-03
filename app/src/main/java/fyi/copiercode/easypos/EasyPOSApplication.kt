@@ -32,6 +32,7 @@ class EasyPOSApplication : Application() {
             webServer = PosWebServer(
                 context = this,
                 orderDao = database.orderDao(),
+                productDao = database.productDao(),
                 settingsRepository = settingsRepo,
                 port = 8080
             )

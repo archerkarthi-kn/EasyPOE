@@ -33,7 +33,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
@@ -57,7 +59,7 @@ fun AdminDashboard(
     onBack: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Products", "Categories", "Offers", "Audit", "Settings")
+    val tabs = listOf("Products", "Categories", "Offers", "Audit", "Manual Bill", "Settings")
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -92,7 +94,8 @@ fun AdminDashboard(
                 1 -> CategoryManagement(adminViewModel)
                 2 -> OfferManagement(adminViewModel)
                 3 -> AuditScreen(auditViewModel)
-                4 -> SettingsScreen(adminViewModel)
+                4 -> ManualBillingScreen(adminViewModel)
+                5 -> SettingsScreen(adminViewModel)
             }
         }
     }
@@ -210,7 +213,13 @@ fun ProductManagement(viewModel: AdminViewModel) {
                                         Text("Price: $${String.format(Locale.US, "%.2f", product.basePrice)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                                     }
                                 }
-                                Row {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { viewModel.moveProductUp(product) }) {
+                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up")
+                                    }
+                                    IconButton(onClick = { viewModel.moveProductDown(product) }) {
+                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down")
+                                    }
                                     IconButton(onClick = {
                                         selectedProduct = product
                                         showDialog = true
@@ -711,6 +720,11 @@ fun SettingsScreen(viewModel: AdminViewModel) {
     val billPrefix by viewModel.billPrefix.collectAsState()
     val billCounter by viewModel.billCounter.collectAsState()
     val paperWidth by viewModel.paperWidth.collectAsState()
+    val printerType by viewModel.printerType.collectAsState()
+    val networkPrinterIp by viewModel.networkPrinterIp.collectAsState()
+    val printTwoSlips by viewModel.printTwoSlips.collectAsState()
+    val enableTokenNumber by viewModel.enableTokenNumber.collectAsState()
+    val tokenCounter by viewModel.tokenCounter.collectAsState()
 
     var footerText by remember(billFooter) { mutableStateOf(billFooter) }
     var shopNameText by remember(shopName) { mutableStateOf(shopName) }
@@ -721,6 +735,7 @@ fun SettingsScreen(viewModel: AdminViewModel) {
     var loc1Text by remember(footerLoc1) { mutableStateOf(footerLoc1) }
     var loc2Text by remember(footerLoc2) { mutableStateOf(footerLoc2) }
     var prefixText by remember(billPrefix) { mutableStateOf(billPrefix) }
+    var ipText by remember(networkPrinterIp) { mutableStateOf(networkPrinterIp) }
 
     val logoLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -764,6 +779,106 @@ fun SettingsScreen(viewModel: AdminViewModel) {
     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
         item {
             WifiBridgeCard(viewModel)
+        }
+
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text("Printer & Receipt Configuration", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    
+                    Column {
+                        Text("Connection Type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            FilterChip(
+                                selected = printerType == "BLUETOOTH",
+                                onClick = { viewModel.setPrinterType("BLUETOOTH") },
+                                label = { Text("Bluetooth / Internal") }
+                            )
+                            FilterChip(
+                                selected = printerType == "NETWORK",
+                                onClick = { viewModel.setPrinterType("NETWORK") },
+                                label = { Text("Wi-Fi / LAN") }
+                            )
+                            FilterChip(
+                                selected = printerType == "USB",
+                                onClick = { viewModel.setPrinterType("USB") },
+                                label = { Text("USB (Xprinter)") }
+                            )
+                        }
+                    }
+
+                    if (printerType == "NETWORK") {
+                        OutlinedTextField(
+                            value = ipText,
+                            onValueChange = { ipText = it },
+                            label = { Text("Printer IP Address (e.g. 192.168.1.100)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(onClick = { viewModel.setNetworkPrinterIp(ipText) }) {
+                                    Icon(Icons.Default.Save, contentDescription = "Save IP")
+                                }
+                            }
+                        )
+                    }
+
+                    HorizontalDivider(thickness = 0.5.dp)
+
+                    // Two Slips Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Two Slips (Duplicate Receipt)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("Print 2 slips per order (Cashier & Customer)", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = printTwoSlips,
+                            onCheckedChange = { viewModel.setPrintTwoSlips(it) }
+                        )
+                    }
+
+                    HorizontalDivider(thickness = 0.5.dp)
+
+                    // Token Number Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Enable Token Number", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("Print prominent TOKEN #001 header on receipts", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Switch(
+                            checked = enableTokenNumber,
+                            onCheckedChange = { viewModel.setEnableTokenNumber(it) }
+                        )
+                    }
+
+                    if (enableTokenNumber) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Current Token: #$tokenCounter", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            TextButton(
+                                onClick = { viewModel.resetTokenCounter() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Reset Token Counter")
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         item {
@@ -1400,4 +1515,221 @@ fun OfferEditDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+}
+
+@Composable
+fun ManualBillingScreen(viewModel: AdminViewModel) {
+    val context = LocalContext.current
+    val storedPassword by viewModel.manualBillingPassword.collectAsState()
+
+    var isAuthenticated by remember { mutableStateOf(false) }
+    var passwordInput by remember { mutableStateOf("") }
+    var showChangePwdDialog by remember { mutableStateOf(false) }
+    var newPwdInput by remember { mutableStateOf("") }
+
+    var billNoText by remember { mutableStateOf("MANUAL-${System.currentTimeMillis().toString().takeLast(6)}") }
+    var itemNameText by remember { mutableStateOf("") }
+    var quantityText by remember { mutableStateOf("1") }
+    var priceText by remember { mutableStateOf("") }
+    var paymentMethod by remember { mutableStateOf("CASH") }
+    var amountGivenText by remember { mutableStateOf("") }
+
+    if (!isAuthenticated) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Card(
+                modifier = Modifier.width(360.dp).padding(16.dp),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+            ) {
+                Column(modifier = Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text("Protected Feature", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Please enter the admin PIN to access Manual Billing.", style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Enter PIN (default: admin)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                    )
+
+                    Button(
+                        onClick = {
+                            if (passwordInput == storedPassword) {
+                                isAuthenticated = true
+                            } else {
+                                Toast.makeText(context, "Incorrect PIN", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("UNLOCK", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(bottom = 80.dp)
+        ) {
+            item {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Manual Bill Entry", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { showChangePwdDialog = true }) {
+                        Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Change PIN")
+                    }
+                }
+            }
+
+            item {
+                Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        OutlinedTextField(
+                            value = billNoText,
+                            onValueChange = { billNoText = it },
+                            label = { Text("Bill Number / Order ID") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        OutlinedTextField(
+                            value = itemNameText,
+                            onValueChange = { itemNameText = it },
+                            label = { Text("Item Name") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = quantityText,
+                                onValueChange = { quantityText = it },
+                                label = { Text("Quantity") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
+                            )
+                            OutlinedTextField(
+                                value = priceText,
+                                onValueChange = { priceText = it },
+                                label = { Text("Total Price ($)") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+                            )
+                        }
+
+                        Column {
+                            Text("Payment Method", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                FilterChip(selected = paymentMethod == "CASH", onClick = { paymentMethod = "CASH" }, label = { Text("Cash") })
+                                FilterChip(selected = paymentMethod == "CARD", onClick = { paymentMethod = "CARD" }, label = { Text("Card") })
+                                FilterChip(selected = paymentMethod == "SCAN", onClick = { paymentMethod = "SCAN" }, label = { Text("Scan") })
+                            }
+                        }
+
+                        if (paymentMethod == "CASH") {
+                            val priceVal = priceText.toDoubleOrNull() ?: 0.0
+                            val givenVal = amountGivenText.toDoubleOrNull() ?: 0.0
+                            val changeVal = givenVal - priceVal
+
+                            OutlinedTextField(
+                                value = amountGivenText,
+                                onValueChange = { amountGivenText = it },
+                                label = { Text("Amount Handed Over") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+                            )
+                            if (amountGivenText.isNotBlank()) {
+                                Text("Change to Return: $${String.format(Locale.US, "%.2f", changeVal)}", fontWeight = FontWeight.Bold, color = if (changeVal >= 0) Color(0xFF2E7D32) else Color(0xFFC62828))
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val qty = quantityText.toIntOrNull() ?: 1
+                                val price = priceText.toDoubleOrNull() ?: 0.0
+                                if (itemNameText.isBlank() || price <= 0) {
+                                    Toast.makeText(context, "Please enter valid item name and price", Toast.LENGTH_SHORT).show()
+                                    return@Button
+                                }
+                                val given = amountGivenText.toDoubleOrNull() ?: price
+                                val change = if (paymentMethod == "CASH") given - price else 0.0
+
+                                val receiptItem = fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
+                                    name = itemNameText,
+                                    quantity = qty,
+                                    price = price
+                                )
+
+                                viewModel.createManualOrder(
+                                    context = context,
+                                    billNo = billNoText,
+                                    items = listOf(receiptItem),
+                                    paymentMethod = paymentMethod,
+                                    amountGiven = given,
+                                    change = change
+                                ) { success, error ->
+                                    if (success) {
+                                        Toast.makeText(context, "Manual Bill Printed & Saved!", Toast.LENGTH_SHORT).show()
+                                        billNoText = "MANUAL-${System.currentTimeMillis().toString().takeLast(6)}"
+                                        itemNameText = ""
+                                        priceText = ""
+                                        amountGivenText = ""
+                                    } else {
+                                        Toast.makeText(context, "Print/Save Error: $error", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().height(60.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = itemNameText.isNotBlank() && priceText.isNotBlank()
+                        ) {
+                            Icon(Icons.Default.Print, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("PRINT & SAVE MANUAL BILL", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showChangePwdDialog) {
+        AlertDialog(
+            onDismissRequest = { showChangePwdDialog = false },
+            title = { Text("Change Manual Billing PIN") },
+            text = {
+                OutlinedTextField(
+                    value = newPwdInput,
+                    onValueChange = { newPwdInput = it },
+                    label = { Text("New 4-6 Digit PIN") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (newPwdInput.isNotBlank()) {
+                        viewModel.setManualBillingPassword(newPwdInput)
+                        Toast.makeText(context, "PIN Updated Successfully!", Toast.LENGTH_SHORT).show()
+                        showChangePwdDialog = false
+                        newPwdInput = ""
+                    }
+                }) { Text("Update") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showChangePwdDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 }

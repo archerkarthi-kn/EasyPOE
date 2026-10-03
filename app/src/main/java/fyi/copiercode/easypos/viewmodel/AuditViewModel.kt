@@ -7,6 +7,7 @@ import android.provider.MediaStore
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import fyi.copiercode.easypos.data.SettingsRepository
 import fyi.copiercode.easypos.data.dao.AuditRecord
 import fyi.copiercode.easypos.data.dao.OrderDao
 import fyi.copiercode.easypos.data.dao.ProductDao
@@ -29,7 +30,8 @@ enum class DateFilterType { DAY, MONTH, YEAR, RANGE, ALL }
 @HiltViewModel
 class AuditViewModel @Inject constructor(
     private val orderDao: OrderDao,
-    private val productDao: ProductDao
+    private val productDao: ProductDao,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
 
     private val _selectedCategoryId = MutableStateFlow<Long?>(null)
@@ -127,9 +129,6 @@ class AuditViewModel @Inject constructor(
                 return@launch
             }
 
-            // Using the optimized Bluetooth helper to target "InnerPrinter" specifically
-            val printerHelper = fyi.copiercode.easypos.printing.BluetoothPrinterHelper()
-            
             val totalCashReceived = records.filter { it.paymentMethod == "CASH" }.distinctBy { it.orderId }.sumOf { it.amountGiven }
             val totalChangeGiven = records.filter { it.paymentMethod == "CASH" }.distinctBy { it.orderId }.sumOf { it.balanceAmount }
 
@@ -146,41 +145,118 @@ class AuditViewModel @Inject constructor(
                 }
             }
 
-            val consolidatedItems = records.groupBy { it.name }.map { (name, group) ->
-                val totalQty = group.sumOf { it.quantity }
-                val totalPrice = group.sumOf { it.priceAtSale }
-                val first = group.first()
-                fyi.copiercode.easypos.data.entity.OrderItemEntity(
-                    orderId = 0,
-                    productId = 0,
-                    name = name,
-                    brand = first.brand,
-                    quantity = totalQty,
-                    priceAtSale = totalPrice
-                )
+            val categoriesList = productDao.getAllCategories().first()
+            val categoryMap = categoriesList.associateBy { it.id }
+
+            val groupedByCategory = records.groupBy { 
+                categoryMap[it.categoryId]?.name ?: "General" 
             }
-            
-            withContext(Dispatchers.IO) {
-                try {
-                    printerHelper.printReceipt(
-                        context = context,
-                        targetName = "InnerPrinter",
-                        shopName = "AUDIT ($periodStr)",
-                        footerText = "End of Audit Report",
-                        logoUri = null,
-                        order = fyi.copiercode.easypos.data.entity.OrderEntity(
-                            orderId = "AUDIT-${System.currentTimeMillis()}",
-                            totalAmount = totalRevenue.value,
-                            totalQuantity = totalUnitsSold.value,
-                            brandCategory = "AUDIT",
-                            paymentMethod = "CASH", // Triggers printing of Given/Change totals
-                            amountGiven = totalCashReceived,
-                            balanceAmount = totalChangeGiven
-                        ),
-                        items = consolidatedItems
+
+            val itemsToPrint = mutableListOf<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>()
+
+            groupedByCategory.toSortedMap().forEach { (catName, catRecords) ->
+                // Category Header Row (quantity = 0 triggers category header rendering)
+                itemsToPrint.add(
+                    fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
+                        name = "=== ${catName.uppercase()} ===",
+                        quantity = 0,
+                        price = 0.0
                     )
-                } catch (e: Exception) {
-                    Log.e("AuditViewModel", "Audit print failed", e)
+                )
+
+                // Group items within this Category
+                val productGroups = catRecords.groupBy { it.name }
+                productGroups.forEach { (itemName, group) ->
+                    val totalQty = group.sumOf { it.quantity }
+                    val totalPrice = group.sumOf { it.priceAtSale }
+                    itemsToPrint.add(
+                        fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
+                            name = itemName,
+                            quantity = totalQty,
+                            price = totalPrice
+                        )
+                    )
+                }
+            }
+
+            try {
+                val logoPath = orderDao.getSetting("receipt_logo_uri")?.value
+                val logoBitmap = if (!logoPath.isNullOrEmpty()) {
+                    try {
+                        if (logoPath.startsWith("content://") || logoPath.startsWith("file://") || logoPath.startsWith("android.resource://")) {
+                            val uri = android.net.Uri.parse(logoPath)
+                            context.contentResolver.openInputStream(uri)?.use {
+                                android.graphics.BitmapFactory.decodeStream(it)
+                            }
+                        } else {
+                            val file = File(logoPath)
+                            if (file.exists()) {
+                                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                            } else null
+                        }
+                    } catch (e: Exception) { null }
+                } else null
+
+                val paperWidth = settingsRepository.paperWidth.first()
+                val paperWidthPx = if (paperWidth == 48) 576 else 384
+                val footerContact = fyi.copiercode.easypos.util.ReceiptBuilder.FooterContact(
+                    tel = settingsRepository.footerTel.first(),
+                    email = settingsRepository.footerEmail.first(),
+                    loc1 = settingsRepository.footerLoc1.first(),
+                    loc2 = settingsRepository.footerLoc2.first()
+                )
+
+                val receiptBitmap = fyi.copiercode.easypos.util.BitmapHelper.drawFancyReceipt(
+                    lineWidth = paperWidthPx,
+                    logo = logoBitmap,
+                    shopName = "AUDIT ($periodStr)",
+                    billNo = "AUDIT-${System.currentTimeMillis().toString().takeLast(6)}",
+                    items = itemsToPrint,
+                    total = totalRevenue.value,
+                    paymentMethod = "CASH",
+                    amountReceived = totalCashReceived,
+                    change = totalChangeGiven,
+                    footerContact = footerContact
+                )
+
+                val printerType = settingsRepository.printerType.first()
+                val isPrinted = withContext(Dispatchers.IO) {
+                    when (printerType) {
+                        "USB" -> {
+                            fyi.copiercode.easypos.printing.UsbPrinterHelper(context).printBitmapUsb(receiptBitmap)
+                        }
+                        "NETWORK" -> {
+                            val ip = settingsRepository.networkPrinterIp.first()
+                            fyi.copiercode.easypos.printing.NetworkPrinterHelper().printBitmapNetwork(ip, 9100, receiptBitmap)
+                        }
+                        else -> {
+                            fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printFancyOrder(
+                                context = context,
+                                logoUri = logoPath,
+                                shopName = "AUDIT ($periodStr)",
+                                billNo = "AUDIT",
+                                items = itemsToPrint,
+                                total = totalRevenue.value,
+                                paymentMethod = "CASH",
+                                amountReceived = totalCashReceived,
+                                change = totalChangeGiven,
+                                footerContact = footerContact
+                            )
+                        }
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (isPrinted) {
+                        android.widget.Toast.makeText(context, "Audit Printed Successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        onError("Print failed. Please check printer connection & settings.")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AuditViewModel", "Audit print failed", e)
+                withContext(Dispatchers.Main) {
+                    onError("Print Error: ${e.message}")
                 }
             }
         }

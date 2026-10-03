@@ -1,23 +1,19 @@
-# Walkthrough - Consolidated Audit Reports, Date Labeling & Export Options
+# Walkthrough - Customer Receipt Header for Two Slips Printing
 
-I have successfully enhanced the Audit reporting features with item quantity consolidation, audit date period headers on printed receipts, and flexible Download/Share export dialogs.
+I have updated the duplicate / two-slip printing feature so that when two slips are printed for an order, the second slip explicitly displays **`*** CUSTOMER RECEIPT ***`** in a prominent header below the shop title.
 
 ## Changes Made
 
-### 1. Consolidated Audit Items on Print
-- **[AuditViewModel.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/viewmodel/AuditViewModel.kt)** (`printAudit()`):
-  - Automatically groups identical items purchased during the audited date/period.
-  - Sums their quantities and sales amounts into a single line item (e.g., combining `Bullet x3` and `Bullet x2` into `Bullet x5` with total price), removing repetitive individual lines.
+### 1. Slip Title Header Parameter
+- **[BitmapHelper.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/util/BitmapHelper.kt)**:
+  - Added `slipTitle: String? = null` parameter to `drawFancyReceipt()`.
+  - When provided, renders `*** CUSTOMER RECEIPT ***` or `*** CASHIER COPY ***` in bold text centered below the shop name.
 
-### 2. Audit Period Labeling on Receipt
-- **[AuditViewModel.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/viewmodel/AuditViewModel.kt)**:
-  - Formats the active date filter (Daily, Monthly, Yearly, or Custom Range) and prints it prominently in the audit receipt header (e.g. `AUDIT (01-10-2026)`), making it clear which timeframe the report covers.
-
-### 3. Flexible Export Options (Download or Share)
-- **[AuditViewModel.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/viewmodel/AuditViewModel.kt)**:
-  - Added `generateCsvFile()` to cache reports in app cache directory for secure sharing via Android `FileProvider`.
-- **[AdminDashboard.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/ui/screens/AdminDashboard.kt)** (`AuditScreen`):
-  - Tapping **Export** now opens a sleek dialog asking whether you want to **Download** to the device Downloads folder or **Share** the CSV file via external apps (WhatsApp, Email, Google Drive, etc.).
+### 2. Multi-Pass Printing Router
+- **[BluetoothPrinterHelper.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/printing/BluetoothPrinterHelper.kt)** & **[CartViewModel.kt](file:///C:/APPLICATION/Android/POS/app/src/main/java/fyi/copiercode/easypos/viewmodel/CartViewModel.kt)**:
+  - When "Two Slips" is enabled in Admin Settings:
+    - **Slip 1 (First Pass)**: Renders `*** CASHIER COPY ***` (and kicks cash drawer if cash payment).
+    - **Slip 2 (Second Pass)**: Renders `*** CUSTOMER RECEIPT ***` prominently.
 
 ---
 

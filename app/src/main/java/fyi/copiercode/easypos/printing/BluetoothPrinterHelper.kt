@@ -44,6 +44,8 @@ class BluetoothPrinterHelper {
         logoUri: String?,
         shopName: String,
         billNo: String,
+        tokenNumber: String? = null,
+        slipTitle: String? = null,
         items: List<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>,
         total: Double,
         paymentMethod: String,
@@ -59,7 +61,7 @@ class BluetoothPrinterHelper {
             if (adapter == null || !adapter.isEnabled) return false
 
             val pairedDevices = adapter.bondedDevices
-            val device = pairedDevices.find { it.name == targetName } ?: return false
+            val device = pairedDevices.find { it.name == targetName } ?: pairedDevices.firstOrNull() ?: return false
 
             adapter.cancelDiscovery()
             socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
@@ -90,6 +92,8 @@ class BluetoothPrinterHelper {
                 logo = logoBitmap,
                 shopName = shopName,
                 billNo = billNo,
+                tokenNumber = tokenNumber,
+                slipTitle = slipTitle,
                 items = items,
                 total = total,
                 paymentMethod = paymentMethod,
@@ -99,6 +103,11 @@ class BluetoothPrinterHelper {
             )
 
             printer.printImage(fancyReceipt)
+
+            // Kick Cash Drawer on CASH transactions
+            if (paymentMethod == "CASH") {
+                printer.openCashDrawer()
+            }
 
             // Finalize - minimal paper waste
             printer.printText("\n\n")
@@ -373,6 +382,11 @@ class BluetoothPrinterHelper {
 
         fun cut() {
             outputStream.write(byteArrayOf(0x1D, 0x56, 0x42, 0x00))
+        }
+
+        fun openCashDrawer() {
+            // ESC p 0 25 250 (Standard ESC/POS Cash Drawer Pulse)
+            outputStream.write(byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte()))
         }
 
         fun printImage(bitmap: Bitmap) {

@@ -41,6 +41,12 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
         val BRIDGE_PIN = stringPreferencesKey("bridge_pin")
         val BRIDGE_TOKEN = stringPreferencesKey("bridge_token")
         val BRIDGE_PAIRED_DEVICES = stringPreferencesKey("bridge_paired_devices")
+        val MANUAL_BILLING_PASSWORD = stringPreferencesKey("manual_billing_password")
+        val PRINTER_TYPE = stringPreferencesKey("printer_type")
+        val NETWORK_PRINTER_IP = stringPreferencesKey("network_printer_ip")
+        val PRINT_TWO_SLIPS = booleanPreferencesKey("print_two_slips")
+        val ENABLE_TOKEN_NUMBER = booleanPreferencesKey("enable_token_number")
+        val TOKEN_COUNTER = intPreferencesKey("token_counter")
     }
 
     val footerTel: Flow<String> = context.dataStore.data.map { it[Keys.TEL] ?: "" }
@@ -54,6 +60,49 @@ class SettingsRepository @Inject constructor(@ApplicationContext private val con
     val isApproved: Flow<Boolean?> = context.dataStore.data.map { it[Keys.CACHED_IS_APPROVED] }
     val bridgePin: Flow<String> = context.dataStore.data.map { it[Keys.BRIDGE_PIN] ?: "1234" }
     val bridgeToken: Flow<String> = context.dataStore.data.map { it[Keys.BRIDGE_TOKEN] ?: "" }
+    val manualBillingPassword: Flow<String> = context.dataStore.data.map { 
+        val stored = it[Keys.MANUAL_BILLING_PASSWORD]
+        if (stored.isNullOrBlank() || stored == "11111") "admin" else stored
+    }
+    
+    val printerType: Flow<String> = context.dataStore.data.map { it[Keys.PRINTER_TYPE] ?: "BLUETOOTH" }
+    val networkPrinterIp: Flow<String> = context.dataStore.data.map { it[Keys.NETWORK_PRINTER_IP] ?: "192.168.1.100" }
+    val printTwoSlips: Flow<Boolean> = context.dataStore.data.map { it[Keys.PRINT_TWO_SLIPS] ?: false }
+    val enableTokenNumber: Flow<Boolean> = context.dataStore.data.map { it[Keys.ENABLE_TOKEN_NUMBER] ?: false }
+    val tokenCounter: Flow<Int> = context.dataStore.data.map { it[Keys.TOKEN_COUNTER] ?: 1 }
+
+    suspend fun setPrintTwoSlips(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.PRINT_TWO_SLIPS] = enabled }
+    }
+
+    suspend fun setEnableTokenNumber(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.ENABLE_TOKEN_NUMBER] = enabled }
+    }
+
+    suspend fun resetTokenCounter() {
+        context.dataStore.edit { it[Keys.TOKEN_COUNTER] = 1 }
+    }
+
+    suspend fun getNextTokenNumber(): Int {
+        var currentToken = 1
+        context.dataStore.edit { preferences ->
+            currentToken = preferences[Keys.TOKEN_COUNTER] ?: 1
+            preferences[Keys.TOKEN_COUNTER] = currentToken + 1
+        }
+        return currentToken
+    }
+
+    suspend fun setPrinterType(type: String) {
+        context.dataStore.edit { it[Keys.PRINTER_TYPE] = type }
+    }
+
+    suspend fun setNetworkPrinterIp(ip: String) {
+        context.dataStore.edit { it[Keys.NETWORK_PRINTER_IP] = ip }
+    }
+
+    suspend fun setManualBillingPassword(password: String) {
+        context.dataStore.edit { it[Keys.MANUAL_BILLING_PASSWORD] = password }
+    }
     
     val pairedDevices: Flow<List<PairedDevice>> = context.dataStore.data.map { prefs ->
         val jsonStr = prefs[Keys.BRIDGE_PAIRED_DEVICES] ?: "[]"
