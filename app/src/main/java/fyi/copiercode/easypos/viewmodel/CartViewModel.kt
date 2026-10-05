@@ -219,6 +219,7 @@ class CartViewModel @Inject constructor(
                     OrderItemEntity(
                         orderId = id,
                         productId = cartItem.product.id,
+                        categoryId = cartItem.product.categoryId,
                         name = cartItem.product.name,
                         brand = cartItem.product.brand,
                         quantity = cartItem.quantity,

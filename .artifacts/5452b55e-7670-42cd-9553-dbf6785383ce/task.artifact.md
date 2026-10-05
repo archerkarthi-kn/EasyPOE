@@ -1,8 +1,8 @@
-# Tasks: Customer Receipt Header on Two Slips Printing
+# Tasks: Category Resolution Fix for Audit Reports
 
-- [x] **1. Receipt Header Title Parameter (`BitmapHelper.kt`)**
-    - [x] Added `slipTitle` parameter to `drawFancyReceipt()` to render `*** CUSTOMER RECEIPT ***` or `*** CASHIER COPY ***` headers centered on receipts
-- [x] **2. Multi-Pass Printing Router (`CartViewModel.kt` & `BluetoothPrinterHelper.kt`)**
-    - [x] Updated two-slip printing to pass `CASHIER COPY` on pass 1 and `CUSTOMER RECEIPT` on pass 2
-- [x] **3. Build & Verification**
+- [x] **1. Order Item Category ID Propagation**
+    - [x] Updated `CartViewModel.kt` to pass `categoryId = cartItem.product.categoryId` when saving order items to SQLite database
+- [x] **2. Historical Audit Record Category Lookup**
+    - [x] Updated `AuditViewModel.kt` to dynamically resolve category names for existing records by matching product names with the products table in Room DB
+- [x] **3. Build & Delivery**
     - [x] Built the APK and verified zero compilation errors

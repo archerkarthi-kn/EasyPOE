@@ -126,6 +126,47 @@ class BluetoothPrinterHelper {
         }
     }
 
+    fun printBitmap(
+        context: Context,
+        targetName: String = "InnerPrinter",
+        bitmap: Bitmap
+    ): Boolean {
+        var socket: BluetoothSocket? = null
+        var outputStream: OutputStream? = null
+
+        return try {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (adapter == null || !adapter.isEnabled) return false
+
+            val pairedDevices = adapter.bondedDevices
+            val device = pairedDevices.find { it.name == targetName } ?: pairedDevices.firstOrNull() ?: return false
+
+            adapter.cancelDiscovery()
+            socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            socket.connect()
+
+            if (!socket.isConnected) return false
+
+            outputStream = socket.outputStream
+            val printer = ESCPOSWriter(outputStream)
+
+            printer.printImage(bitmap)
+            printer.printText("\n\n\n\n")
+            printer.cut()
+
+            outputStream.flush()
+            true
+        } catch (e: Exception) {
+            Log.e("BluetoothPrinter", "printBitmap failed", e)
+            false
+        } finally {
+            try {
+                outputStream?.close()
+                socket?.close()
+            } catch (_: Exception) {}
+        }
+    }
+
     fun printFormattedText(
         context: Context,
         targetName: String = "InnerPrinter",

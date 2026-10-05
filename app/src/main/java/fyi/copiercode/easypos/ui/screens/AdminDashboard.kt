@@ -1534,6 +1534,8 @@ fun ManualBillingScreen(viewModel: AdminViewModel) {
     var paymentMethod by remember { mutableStateOf("CASH") }
     var amountGivenText by remember { mutableStateOf("") }
 
+    val manualItems = remember { mutableStateListOf<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>() }
+
     if (!isAuthenticated) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Card(
@@ -1573,6 +1575,8 @@ fun ManualBillingScreen(viewModel: AdminViewModel) {
             }
         }
     } else {
+        val totalBillAmount = manualItems.sumOf { it.price }
+
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -1589,9 +1593,12 @@ fun ManualBillingScreen(viewModel: AdminViewModel) {
                 }
             }
 
+            // Card 1: Add Item Inputs
             item {
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Add Item to Bill", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+
                         OutlinedTextField(
                             value = billNoText,
                             onValueChange = { billNoText = it },
@@ -1627,33 +1634,6 @@ fun ManualBillingScreen(viewModel: AdminViewModel) {
                             )
                         }
 
-                        Column {
-                            Text("Payment Method", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                FilterChip(selected = paymentMethod == "CASH", onClick = { paymentMethod = "CASH" }, label = { Text("Cash") })
-                                FilterChip(selected = paymentMethod == "CARD", onClick = { paymentMethod = "CARD" }, label = { Text("Card") })
-                                FilterChip(selected = paymentMethod == "SCAN", onClick = { paymentMethod = "SCAN" }, label = { Text("Scan") })
-                            }
-                        }
-
-                        if (paymentMethod == "CASH") {
-                            val priceVal = priceText.toDoubleOrNull() ?: 0.0
-                            val givenVal = amountGivenText.toDoubleOrNull() ?: 0.0
-                            val changeVal = givenVal - priceVal
-
-                            OutlinedTextField(
-                                value = amountGivenText,
-                                onValueChange = { amountGivenText = it },
-                                label = { Text("Amount Handed Over") },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
-                            )
-                            if (amountGivenText.isNotBlank()) {
-                                Text("Change to Return: $${String.format(Locale.US, "%.2f", changeVal)}", fontWeight = FontWeight.Bold, color = if (changeVal >= 0) Color(0xFF2E7D32) else Color(0xFFC62828))
-                            }
-                        }
-
                         Button(
                             onClick = {
                                 val qty = quantityText.toIntOrNull() ?: 1
@@ -1662,41 +1642,136 @@ fun ManualBillingScreen(viewModel: AdminViewModel) {
                                     Toast.makeText(context, "Please enter valid item name and price", Toast.LENGTH_SHORT).show()
                                     return@Button
                                 }
-                                val given = amountGivenText.toDoubleOrNull() ?: price
-                                val change = if (paymentMethod == "CASH") given - price else 0.0
-
-                                val receiptItem = fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
-                                    name = itemNameText,
-                                    quantity = qty,
-                                    price = price
+                                manualItems.add(
+                                    fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
+                                        name = itemNameText,
+                                        quantity = qty,
+                                        price = price
+                                    )
                                 )
-
-                                viewModel.createManualOrder(
-                                    context = context,
-                                    billNo = billNoText,
-                                    items = listOf(receiptItem),
-                                    paymentMethod = paymentMethod,
-                                    amountGiven = given,
-                                    change = change
-                                ) { success, error ->
-                                    if (success) {
-                                        Toast.makeText(context, "Manual Bill Printed & Saved!", Toast.LENGTH_SHORT).show()
-                                        billNoText = "MANUAL-${System.currentTimeMillis().toString().takeLast(6)}"
-                                        itemNameText = ""
-                                        priceText = ""
-                                        amountGivenText = ""
-                                    } else {
-                                        Toast.makeText(context, "Print/Save Error: $error", Toast.LENGTH_LONG).show()
-                                    }
-                                }
+                                itemNameText = ""
+                                priceText = ""
+                                quantityText = "1"
+                                Toast.makeText(context, "Item added to manual bill", Toast.LENGTH_SHORT).show()
                             },
-                            modifier = Modifier.fillMaxWidth().height(60.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
                             enabled = itemNameText.isNotBlank() && priceText.isNotBlank()
                         ) {
-                            Icon(Icons.Default.Print, contentDescription = null)
+                            Icon(Icons.Default.Add, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("PRINT & SAVE MANUAL BILL", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("ADD ITEM TO BILL", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            // Card 2: Added Items List (Multi-item support)
+            if (manualItems.isNotEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Bill Items (${manualItems.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                TextButton(onClick = { manualItems.clear() }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                    Text("Clear All")
+                                }
+                            }
+
+                            manualItems.forEachIndexed { index, item ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("${index + 1}. ${item.name}", fontWeight = FontWeight.Bold)
+                                        Text("Qty: ${item.quantity}  •  Unit: $${String.format(Locale.US, "%.2f", item.price / item.quantity)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                                    }
+                                    Text("$${String.format(Locale.US, "%.2f", item.price)}", fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                    IconButton(onClick = { manualItems.removeAt(index) }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                                    }
+                                }
+                                HorizontalDivider(thickness = 0.5.dp)
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Total Bill Amount:", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Text("$${String.format(Locale.US, "%.2f", totalBillAmount)}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+
+                // Card 3: Payment Method & Print Action
+                item {
+                    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column {
+                                Text("Payment Method", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    FilterChip(selected = paymentMethod == "CASH", onClick = { paymentMethod = "CASH" }, label = { Text("Cash") })
+                                    FilterChip(selected = paymentMethod == "CARD", onClick = { paymentMethod = "CARD" }, label = { Text("Card") })
+                                    FilterChip(selected = paymentMethod == "SCAN", onClick = { paymentMethod = "SCAN" }, label = { Text("Scan") })
+                                }
+                            }
+
+                            if (paymentMethod == "CASH") {
+                                val givenVal = amountGivenText.toDoubleOrNull() ?: totalBillAmount
+                                val changeVal = givenVal - totalBillAmount
+
+                                OutlinedTextField(
+                                    value = amountGivenText,
+                                    onValueChange = { amountGivenText = it },
+                                    label = { Text("Amount Handed Over (Optional)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal)
+                                )
+                                if (amountGivenText.isNotBlank()) {
+                                    Text("Change to Return: $${String.format(Locale.US, "%.2f", changeVal)}", fontWeight = FontWeight.Bold, color = if (changeVal >= 0) Color(0xFF2E7D32) else Color(0xFFC62828))
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    val given = amountGivenText.toDoubleOrNull() ?: totalBillAmount
+                                    val change = if (paymentMethod == "CASH") given - totalBillAmount else 0.0
+
+                                    viewModel.createManualOrder(
+                                        context = context,
+                                        billNo = billNoText,
+                                        items = manualItems.toList(),
+                                        paymentMethod = paymentMethod,
+                                        amountGiven = given,
+                                        change = change
+                                    ) { success, error ->
+                                        if (success) {
+                                            Toast.makeText(context, "Manual Bill Printed!", Toast.LENGTH_SHORT).show()
+                                            manualItems.clear()
+                                            billNoText = "MANUAL-${System.currentTimeMillis().toString().takeLast(6)}"
+                                            amountGivenText = ""
+                                        } else {
+                                            Toast.makeText(context, "Print Error: $error", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(60.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.Print, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("PRINT MANUAL BILL ($${String.format(Locale.US, "%.2f", totalBillAmount)})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            }
                         }
                     }
                 }

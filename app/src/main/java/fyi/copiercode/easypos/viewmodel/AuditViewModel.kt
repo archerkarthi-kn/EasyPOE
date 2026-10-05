@@ -147,29 +147,33 @@ class AuditViewModel @Inject constructor(
 
             val categoriesList = productDao.getAllCategories().first()
             val categoryMap = categoriesList.associateBy { it.id }
+            val allProducts = productDao.getAllProductsList()
+            val productByName = allProducts.associateBy { it.name.trim().lowercase() }
 
-            val groupedByCategory = records.groupBy { 
-                categoryMap[it.categoryId]?.name ?: "General" 
+            val groupedByCategory = records.groupBy { record ->
+                var catName = categoryMap[record.categoryId]?.name
+                if (catName.isNullOrBlank() || catName == "General") {
+                    val prod = productByName[record.name.trim().lowercase()]
+                    if (prod != null) {
+                        catName = categoryMap[prod.categoryId]?.name ?: prod.brand
+                    }
+                }
+                if (catName.isNullOrBlank() || catName == "Retail") {
+                    if (record.brand.isNotBlank() && record.brand != "Retail" && record.brand != "Manual") {
+                        record.brand
+                    } else "General"
+                } else catName
             }
 
-            val itemsToPrint = mutableListOf<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>()
+            val categoryGroups = LinkedHashMap<String, List<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>>()
 
             groupedByCategory.toSortedMap().forEach { (catName, catRecords) ->
-                // Category Header Row (quantity = 0 triggers category header rendering)
-                itemsToPrint.add(
-                    fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
-                        name = "=== ${catName.uppercase()} ===",
-                        quantity = 0,
-                        price = 0.0
-                    )
-                )
-
-                // Group items within this Category
+                val list = mutableListOf<fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem>()
                 val productGroups = catRecords.groupBy { it.name }
                 productGroups.forEach { (itemName, group) ->
                     val totalQty = group.sumOf { it.quantity }
                     val totalPrice = group.sumOf { it.priceAtSale }
-                    itemsToPrint.add(
+                    list.add(
                         fyi.copiercode.easypos.util.ReceiptBuilder.ReceiptItem(
                             name = itemName,
                             quantity = totalQty,
@@ -177,26 +181,11 @@ class AuditViewModel @Inject constructor(
                         )
                     )
                 }
+                categoryGroups[catName] = list
             }
 
             try {
-                val logoPath = orderDao.getSetting("receipt_logo_uri")?.value
-                val logoBitmap = if (!logoPath.isNullOrEmpty()) {
-                    try {
-                        if (logoPath.startsWith("content://") || logoPath.startsWith("file://") || logoPath.startsWith("android.resource://")) {
-                            val uri = android.net.Uri.parse(logoPath)
-                            context.contentResolver.openInputStream(uri)?.use {
-                                android.graphics.BitmapFactory.decodeStream(it)
-                            }
-                        } else {
-                            val file = File(logoPath)
-                            if (file.exists()) {
-                                android.graphics.BitmapFactory.decodeFile(file.absolutePath)
-                            } else null
-                        }
-                    } catch (e: Exception) { null }
-                } else null
-
+                val shopName = orderDao.getSetting("shop_name")?.value ?: "Easy POS"
                 val paperWidth = settingsRepository.paperWidth.first()
                 val paperWidthPx = if (paperWidth == 48) 576 else 384
                 val footerContact = fyi.copiercode.easypos.util.ReceiptBuilder.FooterContact(
@@ -206,16 +195,15 @@ class AuditViewModel @Inject constructor(
                     loc2 = settingsRepository.footerLoc2.first()
                 )
 
-                val receiptBitmap = fyi.copiercode.easypos.util.BitmapHelper.drawFancyReceipt(
+                val receiptBitmap = fyi.copiercode.easypos.util.BitmapHelper.drawAuditReport(
                     lineWidth = paperWidthPx,
-                    logo = logoBitmap,
-                    shopName = "AUDIT ($periodStr)",
-                    billNo = "AUDIT-${System.currentTimeMillis().toString().takeLast(6)}",
-                    items = itemsToPrint,
-                    total = totalRevenue.value,
-                    paymentMethod = "CASH",
-                    amountReceived = totalCashReceived,
-                    change = totalChangeGiven,
+                    shopName = shopName,
+                    periodStr = periodStr,
+                    categoryGroups = categoryGroups,
+                    totalRevenue = totalRevenue.value,
+                    totalUnitsSold = totalUnitsSold.value,
+                    totalCash = totalCashReceived,
+                    totalChange = totalChangeGiven,
                     footerContact = footerContact
                 )
 
@@ -230,17 +218,10 @@ class AuditViewModel @Inject constructor(
                             fyi.copiercode.easypos.printing.NetworkPrinterHelper().printBitmapNetwork(ip, 9100, receiptBitmap)
                         }
                         else -> {
-                            fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printFancyOrder(
+                            fyi.copiercode.easypos.printing.BluetoothPrinterHelper().printBitmap(
                                 context = context,
-                                logoUri = logoPath,
-                                shopName = "AUDIT ($periodStr)",
-                                billNo = "AUDIT",
-                                items = itemsToPrint,
-                                total = totalRevenue.value,
-                                paymentMethod = "CASH",
-                                amountReceived = totalCashReceived,
-                                change = totalChangeGiven,
-                                footerContact = footerContact
+                                targetName = "InnerPrinter",
+                                bitmap = receiptBitmap
                             )
                         }
                     }

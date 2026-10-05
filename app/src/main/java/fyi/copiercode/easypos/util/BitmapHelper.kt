@@ -412,4 +412,163 @@ object BitmapHelper {
         if (currentLine.isNotEmpty()) lines.add(currentLine.toString())
         return lines
     }
+
+    /**
+     * Renders a dedicated Category-wise & Item-wise Audit Report based on handwritten layout specification.
+     */
+    fun drawAuditReport(
+        lineWidth: Int = 576,
+        shopName: String,
+        periodStr: String,
+        categoryGroups: Map<String, List<ReceiptBuilder.ReceiptItem>>,
+        totalRevenue: Double,
+        totalUnitsSold: Int,
+        totalCash: Double = 0.0,
+        totalChange: Double = 0.0,
+        footerContact: ReceiptBuilder.FooterContact
+    ): Bitmap {
+        val paint = Paint().apply {
+            color = Color.BLACK
+            isAntiAlias = false
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+
+        val now = Date()
+        val dateStr = SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(now)
+        val timeStr = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(now)
+
+        val totalHeight = 4500
+        val bitmap = Bitmap.createBitmap(lineWidth, totalHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.drawColor(Color.WHITE)
+
+        var y = 25f
+        val centerX = lineWidth / 2f
+        val margin = 35f
+
+        // --- TITLE ---
+        paint.textSize = 34f
+        paint.isFakeBoldText = true
+        val title = "ITEMWISE / CATEG REPORT"
+        canvas.drawText(title, centerX - (paint.measureText(title) / 2f), y + 25f, paint)
+        y += 50f
+
+        // Subtitle Shop Name & Period
+        paint.textSize = 22f
+        paint.isFakeBoldText = false
+        val sub = "$shopName • $periodStr"
+        canvas.drawText(sub, centerX - (paint.measureText(sub) / 2f), y, paint)
+        y += 28f
+
+        paint.textSize = 18f
+        val printTime = "Printed: $dateStr, $timeStr"
+        canvas.drawText(printTime, centerX - (paint.measureText(printTime) / 2f), y, paint)
+        y += 20f
+
+        // Header Line
+        paint.strokeWidth = 2.5f
+        canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+        y += 35f
+
+        // --- CATEGORIES & ITEMS ---
+        val qtyX = lineWidth - margin - 180f
+        val amountX = lineWidth - margin
+
+        categoryGroups.forEach { (catName, items) ->
+            if (items.isNotEmpty()) {
+                val catQty = items.sumOf { it.quantity }
+                val catAmount = items.sumOf { it.price }
+
+                // Category Title Line (e.g. BIRYANI VARIETY)
+                paint.textSize = 26f
+                paint.isFakeBoldText = true
+                canvas.drawText(catName.uppercase(), margin, y, paint)
+
+                paint.textAlign = Paint.Align.RIGHT
+                paint.textSize = 22f
+                canvas.drawText("QTY: $catQty", amountX - 160f, y, paint)
+                canvas.drawText("$${String.format(Locale.US, "%.2f", catAmount)}", amountX, y, paint)
+                paint.textAlign = Paint.Align.LEFT
+
+                y += 12f
+                paint.strokeWidth = 2f
+                canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+                y += 32f
+
+                // Items under Category
+                paint.textSize = 20f
+                paint.isFakeBoldText = false
+
+                items.forEachIndexed { index, item ->
+                    val snoText = "${index + 1}. "
+                    val maxNameWidth = qtyX - margin - paint.measureText(snoText) - 10f
+                    var name = item.name
+                    if (paint.measureText(name) > maxNameWidth) {
+                        var truncated = name
+                        while (paint.measureText("$truncated..") > maxNameWidth && truncated.length > 2) {
+                            truncated = truncated.substring(0, truncated.length - 1)
+                        }
+                        name = "$truncated.."
+                    }
+
+                    canvas.drawText("$snoText$name", margin, y, paint)
+
+                    paint.textAlign = Paint.Align.RIGHT
+                    canvas.drawText("${item.quantity}", qtyX + 50f, y, paint)
+                    canvas.drawText("$${String.format(Locale.US, "%.2f", item.price)}", amountX, y, paint)
+                    paint.textAlign = Paint.Align.LEFT
+
+                    y += 10f
+                    paint.strokeWidth = 1f
+                    paint.pathEffect = DashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    canvas.drawLine(margin + 20f, y, lineWidth - margin, y, paint)
+                    paint.pathEffect = null
+                    y += 30f
+                }
+
+                y += 15f
+            }
+        }
+
+        // --- GRAND TOTAL SUMMARY ---
+        paint.strokeWidth = 2.5f
+        canvas.drawLine(margin, y, lineWidth - margin, y, paint)
+        y += 35f
+
+        paint.textSize = 26f
+        paint.isFakeBoldText = true
+        canvas.drawText("TOTAL UNITS SOLD:", margin, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("$totalUnitsSold", amountX, y, paint)
+        paint.textAlign = Paint.Align.LEFT
+        y += 35f
+
+        paint.textSize = 30f
+        paint.isFakeBoldText = true
+        canvas.drawText("TOTAL REVENUE:", margin, y, paint)
+        paint.textAlign = Paint.Align.RIGHT
+        canvas.drawText("$${String.format(Locale.US, "%.2f", totalRevenue)}", amountX, y, paint)
+        paint.textAlign = Paint.Align.LEFT
+        y += 35f
+
+        if (totalCash > 0) {
+            paint.textSize = 20f
+            paint.isFakeBoldText = false
+            canvas.drawText("Cash Collected: $${String.format(Locale.US, "%.2f", totalCash)}", margin, y, paint)
+            y += 25f
+        }
+
+        // Footer End
+        y += 20f
+        paint.textSize = 18f
+        paint.isFakeBoldText = true
+        val footerEnd = "End of Category Audit Report"
+        canvas.drawText(footerEnd, centerX - (paint.measureText(footerEnd) / 2f), y, paint)
+        y += 40f
+
+        val finalHeight = y.toInt().coerceAtMost(totalHeight)
+        val finalBitmap = Bitmap.createBitmap(bitmap, 0, 0, lineWidth, finalHeight)
+        bitmap.recycle()
+        return convertBitmapToMonochrome(finalBitmap, lineWidth)
+    }
 }
